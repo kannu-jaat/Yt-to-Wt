@@ -18,7 +18,6 @@ import android.webkit.CookieManager;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
-import android.widget.Button;
 
 // Import the separated components
 import com.google.android.youtube.pro.webview.YTProWebView;
@@ -41,14 +40,12 @@ public class MainActivity extends Activity {
     private MediaCommandReceiver broadcastReceiver;
     private OnBackInvokedCallback backCallback;
     public BinaryStreamManager streamManager;
-    
-    
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
-        
+
         SharedPreferences prefs = getSharedPreferences("YTPRO", MODE_PRIVATE);
         if (!prefs.contains("bgplay")) {
             prefs.edit().putBoolean("bgplay", true).apply();
@@ -59,11 +56,9 @@ public class MainActivity extends Activity {
     }
 
     public void load(boolean dl) {
-              
-        
         this.dL = dl;
         web = findViewById(R.id.web);
-        
+
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setSupportZoom(true);
         web.getSettings().setBuiltInZoomControls(true);
@@ -73,45 +68,40 @@ public class MainActivity extends Activity {
         web.getSettings().setMediaPlaybackRequiresUserGesture(false); 
         web.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
+        // 🔥 WA WEB KE LIYE DESKTOP USER-AGENT ZAROORI HAI 🔥
+        String desktopUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
+        web.getSettings().setUserAgentString(desktopUserAgent);
+
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             cookieManager.setAcceptThirdPartyCookies(web, true);
         }
 
+        // 🔥 WA WEB URL SET KAREIN 🔥
         Intent intent = getIntent();
         String action = intent.getAction();
         Uri data = intent.getData();
-        String url = "https://m.youtube.com/";
+        String url = "https://web.whatsapp.com/"; // Default to WhatsApp Web
+        
         if (Intent.ACTION_VIEW.equals(action) && data != null) {
             url = data.toString();
-        } else if (Intent.ACTION_SEND.equals(action)) {
-            String sharedText = intent.getStringExtra(Intent.EXTRA_TEXT);
-            if (sharedText != null && (sharedText.contains("youtube.com") || sharedText.contains("youtu.be"))) {
-                url = sharedText;
-            }
         }
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
           web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
 
-
         web.addJavascriptInterface(new WebAppInterface(this, web), "Android");
         web.setWebChromeClient(new YTProWebChromeClient(this, web));
         web.setWebViewClient(new YTProWebViewClient(this, web));
-        
+
         web.loadUrl(url);
 
         setupReceiver();
         setupBackNavigation();
         streamManager = new BinaryStreamManager(web,this);
-        
-        
     }
-         
-
-   
 
     private void setupReceiver() {
         broadcastReceiver = new MediaCommandReceiver(web);
@@ -153,7 +143,7 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 101) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                web.loadUrl("https://m.youtube.com");
+                web.loadUrl("https://web.whatsapp.com/");
             } else {
                 Toast.makeText(getApplicationContext(), getString(R.string.grant_mic), Toast.LENGTH_SHORT).show();
             }
@@ -166,13 +156,16 @@ public class MainActivity extends Activity {
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
-        web.evaluateJavascript(isInPictureInPictureMode ? "PIPlayer();" : "removePIP();", null);
+        // Commented out YouTube PiP JS to prevent errors on WhatsApp
+        // web.evaluateJavascript(isInPictureInPictureMode ? "PIPlayer();" : "removePIP();", null);
         isPip = isInPictureInPictureMode;
     }
 
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
+        // Commented out to avoid triggering PiP for WhatsApp Web which isn't a video player
+        /*
         if (Build.VERSION.SDK_INT >= 26 && web.getUrl() != null && web.getUrl().contains("watch")) {
             if (isPlaying) {
                 try {
@@ -186,6 +179,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
+        */
     }
 
     @Override
