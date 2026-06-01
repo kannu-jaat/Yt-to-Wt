@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
     }
 
     // =======================================================
-    // 🟢 THE JAVASCRIPT INJECTOR (Reads & Writes to Firebase via Bridge)
+    // 🟢 ACCURATE JAVASCRIPT INJECTOR (Name/Number Matching)
     // =======================================================
     public void injectTrackerJS() {
         String jsCode = "javascript:(function() {" +
@@ -129,19 +129,24 @@ public class MainActivity extends Activity {
             "  try {" +
             "    let targetsStr = TrackerApp.getTargetsFromFirebase();" + 
             "    if (!targetsStr || targetsStr === 'null') return;" +
+            "    let targetData = JSON.parse(targetsStr);" +
+            "    if (!targetData.track) return;" +
+            "    let targetNameOrNumber = targetData.track.toLowerCase();" + 
             "    let headerElement = document.querySelector('header');" +
             "    if (headerElement) {" +
             "      let headerText = headerElement.innerText.toLowerCase();" +
-            "      let isTrackingThis = targetsStr.includes('track');" + // Aapka target logic
-            "      if (isTrackingThis && (headerText.includes('online') || headerText.includes('typing'))) {" +
-            "        if (!window.isTargetOnline) {" +
-            "          window.isTargetOnline = true;" +
-            "          TrackerApp.updateStatusInFirebase('ONLINE');" + 
-            "        }" +
-            "      } else if (isTrackingThis && !headerText.includes('online') && !headerText.includes('typing')) {" +
-            "        if (window.isTargetOnline) {" +
-            "          window.isTargetOnline = false;" +
-            "          TrackerApp.updateStatusInFirebase('OFFLINE');" + 
+            "      let isTrackingThis = headerText.includes(targetNameOrNumber);" + 
+            "      if (isTrackingThis) {" +
+            "        if (headerText.includes('online') || headerText.includes('typing')) {" +
+            "          if (!window.isTargetOnline) {" +
+            "            window.isTargetOnline = true;" +
+            "            TrackerApp.updateStatusInFirebase('ONLINE');" + 
+            "          }" +
+            "        } else {" +
+            "          if (window.isTargetOnline) {" +
+            "            window.isTargetOnline = false;" +
+            "            TrackerApp.updateStatusInFirebase('OFFLINE');" + 
+            "          }" +
             "        }" +
             "      }" +
             "    }" +
