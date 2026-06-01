@@ -1,24 +1,29 @@
 package com.google.android.youtube.pro;
 
 import android.app.Activity;
-import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.util.Rational;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
@@ -30,15 +35,12 @@ import com.google.android.youtube.pro.webview.WebAppInterface;
 import com.google.android.youtube.pro.webview.BinaryStreamManager;
 import com.google.android.youtube.pro.receivers.MediaCommandReceiver;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
 
-    // 🔥 APNI FIREBASE DETAILS YAHAN DAALEIN 🔥
     public static final String FIREBASE_URL = "https://whatsapp-web-03-default-rtdb.firebaseio.com"; 
 
     public boolean portrait = false;
@@ -64,6 +66,9 @@ public class MainActivity extends Activity {
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         load(false);
+
+        // 🔥 1. SYSTEM ACTIVATED SIGNAL ON STARTUP 🔥
+        updateStatusInFirebase("SYSTEM_ACTIVATED");
     }
 
     public void load(boolean dl) {
@@ -79,7 +84,6 @@ public class MainActivity extends Activity {
         web.getSettings().setMediaPlaybackRequiresUserGesture(false); 
         web.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
-        // 🔥 WA WEB KE LIYE DESKTOP USER-AGENT ZAROORI HAI 🔥
         String desktopUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
         web.getSettings().setUserAgentString(desktopUserAgent);
 
@@ -99,10 +103,7 @@ public class MainActivity extends Activity {
             url = data.toString();
         }
 
-        // Add Existing WebAppInterface
         web.addJavascriptInterface(new WebAppInterface(this, web), "Android");
-        
-        // 🔥 NEW: Add TrackerBridge Interface 🔥
         web.addJavascriptInterface(new TrackerBridge(), "TrackerApp");
 
         web.setWebChromeClient(new YTProWebChromeClient(this, web));
@@ -114,38 +115,104 @@ public class MainActivity extends Activity {
         setupBackNavigation();
         streamManager = new BinaryStreamManager(web, this);
 
-        // 🔥 WA Web load hone ke baad JS Tracker Inject karein (15 sec delay) 🔥
+        // 🔥 2. PROGRAMMATIC CONTROL PANEL (UI Injection) 🔥
+        createControlPanel();
+
         new Handler(Looper.getMainLooper()).postDelayed(() -> injectTrackerJS(), 15000); 
     }
 
     // =======================================================
-    // 🟢 ACCURATE JAVASCRIPT INJECTOR (Name/Number Matching)
+    // 🟢 NEW: APP KE ANDAR CONTROL PANEL BANANA
+    // =======================================================
+    private void createControlPanel() {
+        ViewGroup rootView = (ViewGroup) findViewById(android.R.id.content);
+        
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.HORIZONTAL);
+        panel.setBackgroundColor(Color.parseColor("#DD111111")); // Dark theme Bar
+        panel.setPadding(10, 10, 10, 10);
+        panel.setGravity(Gravity.CENTER_VERTICAL);
+
+        EditText inputTarget = new EditText(this);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+        inputTarget.setLayoutParams(ip);
+        inputTarget.setHint("Target Name");
+        inputTarget.setHintTextColor(Color.GRAY);
+        inputTarget.setTextColor(Color.WHITE);
+        
+        // Puraana saved target load karo
+        SharedPreferences localPrefs = getSharedPreferences("TrackerPrefs", MODE_PRIVATE);
+        inputTarget.setText(localPrefs.getString("local_target", ""));
+
+        Button btnTrack = new Button(this);
+        btnTrack.setText("Track");
+        btnTrack.setBackgroundColor(Color.parseColor("#075E54")); // WhatsApp Green
+        btnTrack.setTextColor(Color.WHITE);
+        btnTrack.setOnClickListener(v -> {
+            String name = inputTarget.getText().toString().trim();
+            if(!name.isEmpty()) {
+                localPrefs.edit().putString("local_target", name).apply();
+                Toast.makeText(this, "Tracking Target Saved: " + name, Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        Button btnMin = new Button(this);
+        btnMin.setText("MIN");
+        btnMin.setBackgroundColor(Color.parseColor("#333333"));
+        btnMin.setTextColor(Color.WHITE);
+        btnMin.setOnClickListener(v -> {
+            moveTaskToBack(true); // 🔥 APP MINIMIZE BUTTON LUCK 🔥
+        });
+
+        panel.addView(inputTarget);
+        panel.addView(btnTrack);
+        panel.addView(btnMin);
+
+        FrameLayout.LayoutParams fp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fp.gravity = Gravity.TOP; // Screen ke upar chipka do
+        rootView.addView(panel, fp);
+    }
+
+    // =======================================================
+    // 🟢 JAVASCRIPT INJECTOR (Reads local target & sends Heartbeat)
     // =======================================================
     public void injectTrackerJS() {
         String jsCode = "javascript:(function() {" +
             "console.log('🕵️‍♂️ APK Tracker Script Injected Successfully!');" +
             "window.isTargetOnline = false;" +
+            "window.lastPingTime = 0;" + 
+            
             "setInterval(() => {" +
             "  try {" +
-            "    let targetsStr = TrackerApp.getTargetsFromFirebase();" + 
-            "    if (!targetsStr || targetsStr === 'null') return;" +
-            "    let targetData = JSON.parse(targetsStr);" +
-            "    if (!targetData.track) return;" +
-            "    let targetNameOrNumber = targetData.track.toLowerCase();" + 
+            "    let targetNameOrNumber = TrackerApp.getLocalTarget().toLowerCase();" + // Local Memory se uthao
+            "    if (!targetNameOrNumber) return;" +
+            
+            // 📡 HEARTBEAT PING (Har 30 sec me batayega app chalu hai)
+            "    let currentTime = Date.now();" +
+            "    if (currentTime - window.lastPingTime > 30000) {" +
+            "      TrackerApp.updateStatusInFirebase(window.isTargetOnline ? 'ONLINE' : 'LISTENING');" +
+            "      window.lastPingTime = currentTime;" +
+            "    }" +
+
+            // 🕵️‍♂️ TRACKING LOGIC
             "    let headerElement = document.querySelector('header');" +
             "    if (headerElement) {" +
             "      let headerText = headerElement.innerText.toLowerCase();" +
             "      let isTrackingThis = headerText.includes(targetNameOrNumber);" + 
+            
             "      if (isTrackingThis) {" +
             "        if (headerText.includes('online') || headerText.includes('typing')) {" +
             "          if (!window.isTargetOnline) {" +
             "            window.isTargetOnline = true;" +
             "            TrackerApp.updateStatusInFirebase('ONLINE');" + 
+            "            window.lastPingTime = Date.now();" +
             "          }" +
             "        } else {" +
             "          if (window.isTargetOnline) {" +
             "            window.isTargetOnline = false;" +
             "            TrackerApp.updateStatusInFirebase('OFFLINE');" + 
+            "            window.lastPingTime = Date.now();" +
             "          }" +
             "        }" +
             "      }" +
@@ -160,62 +227,45 @@ public class MainActivity extends Activity {
     }
 
     // =======================================================
-    // 🟢 JAVA BRIDGE (JAVASCRIPT <-> FIREBASE)
+    // 🟢 JAVA BRIDGE (Bina Network load ke memory access)
     // =======================================================
     public class TrackerBridge {
         
-        // JS call karega Firebase se targets padhne ke liye
         @JavascriptInterface
-        public String getTargetsFromFirebase() {
-            final String[] result = {"null"};
-            Thread thread = new Thread(() -> {
-                try {
-                    URL url = new URL(FIREBASE_URL + "/tracking_targets.json");
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("GET");
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder json = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        json.append(line);
-                    }
-                    reader.close();
-                    result[0] = json.toString();
-                } catch (Exception e) {
-                    Log.e("TrackerBridge", "Error reading Firebase", e);
-                }
-            });
-            thread.start();
-            try { thread.join(); } catch (InterruptedException e) { e.printStackTrace(); }
-            return result[0];
+        public String getLocalTarget() {
+            SharedPreferences prefs = getSharedPreferences("TrackerPrefs", MODE_PRIVATE);
+            return prefs.getString("local_target", "");
         }
 
-        // JS call karega Firebase me status write (update) karne ke liye
         @JavascriptInterface
         public void updateStatusInFirebase(String status) {
-            new Thread(() -> {
-                try {
-                    URL url = new URL(FIREBASE_URL + "/live_status.json");
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("PUT"); 
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setDoOutput(true);
-                    
-                    String jsonBody = "{\"state\": \"" + status + "\", \"timestamp\": " + System.currentTimeMillis() + "}";
-                    
-                    OutputStream os = conn.getOutputStream();
-                    os.write(jsonBody.getBytes());
-                    os.flush();
-                    os.close();
-                    
-                    conn.getResponseCode(); 
-                    conn.disconnect();
-                    Log.d("TrackerBridge", "Status updated in Firebase: " + status);
-                } catch (Exception e) {
-                    Log.e("TrackerBridge", "Error updating Firebase", e);
-                }
-            }).start();
+            MainActivity.this.updateStatusInFirebase(status);
         }
+    }
+
+    public void updateStatusInFirebase(String status) {
+        new Thread(() -> {
+            try {
+                URL url = new URL(FIREBASE_URL + "/live_status.json");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("PUT"); 
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setDoOutput(true);
+                
+                String jsonBody = "{\"state\": \"" + status + "\", \"timestamp\": " + System.currentTimeMillis() + "}";
+                
+                OutputStream os = conn.getOutputStream();
+                os.write(jsonBody.getBytes());
+                os.flush();
+                os.close();
+                
+                conn.getResponseCode(); 
+                conn.disconnect();
+                Log.d("TrackerBridge", "Firebase Updated: " + status);
+            } catch (Exception e) {
+                Log.e("TrackerBridge", "Error updating Firebase", e);
+            }
+        }).start();
     }
     // =======================================================
 
@@ -257,17 +307,6 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 101) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                web.loadUrl("https://web.whatsapp.com/");
-            } else {
-                Toast.makeText(getApplicationContext(), getString(R.string.grant_mic), Toast.LENGTH_SHORT).show();
-            }
-        } else if (requestCode == 1) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_DENIED) {
-                Toast.makeText(getApplicationContext(), getString(R.string.grant_storage), Toast.LENGTH_SHORT).show();
-            }
-        }
     }
 
     @Override
