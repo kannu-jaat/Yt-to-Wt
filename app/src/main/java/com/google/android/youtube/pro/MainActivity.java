@@ -11,24 +11,35 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.util.Rational;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
-// Import the separated components
 import com.google.android.youtube.pro.webview.YTProWebView;
 import com.google.android.youtube.pro.webview.YTProWebViewClient;
 import com.google.android.youtube.pro.webview.YTProWebChromeClient;
 import com.google.android.youtube.pro.webview.WebAppInterface;
 import com.google.android.youtube.pro.webview.BinaryStreamManager;
-
 import com.google.android.youtube.pro.receivers.MediaCommandReceiver;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class MainActivity extends Activity {
+
+    // 🔥 APNI FIREBASE DETAILS YAHAN DAALEIN 🔥
+    public static final String FIREBASE_URL = "https://whatsapp-web-03-default-rtdb.firebaseio.com"; 
 
     public boolean portrait = false;
     public boolean isPlaying = false;
@@ -76,23 +87,24 @@ public class MainActivity extends Activity {
         cookieManager.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             cookieManager.setAcceptThirdPartyCookies(web, true);
+            web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
 
-        // 🔥 WA WEB URL SET KAREIN 🔥
         Intent intent = getIntent();
         String action = intent.getAction();
         Uri data = intent.getData();
-        String url = "https://web.whatsapp.com/"; // Default to WhatsApp Web
-        
+        String url = "https://web.whatsapp.com/"; 
+
         if (Intent.ACTION_VIEW.equals(action) && data != null) {
             url = data.toString();
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-          web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        }
-
+        // Add Existing WebAppInterface
         web.addJavascriptInterface(new WebAppInterface(this, web), "Android");
+        
+        // 🔥 NEW: Add TrackerBridge Interface 🔥
+        web.addJavascriptInterface(new TrackerBridge(), "TrackerApp");
+
         web.setWebChromeClient(new YTProWebChromeClient(this, web));
         web.setWebViewClient(new YTProWebViewClient(this, web));
 
@@ -100,8 +112,107 @@ public class MainActivity extends Activity {
 
         setupReceiver();
         setupBackNavigation();
-        streamManager = new BinaryStreamManager(web,this);
+        streamManager = new BinaryStreamManager(web, this);
+
+        // 🔥 WA Web load hone ke baad JS Tracker Inject karein (15 sec delay) 🔥
+        new Handler(Looper.getMainLooper()).postDelayed(() -> injectTrackerJS(), 15000); 
     }
+
+    // =======================================================
+    // 🟢 THE JAVASCRIPT INJECTOR (Reads & Writes to Firebase via Bridge)
+    // =======================================================
+    public void injectTrackerJS() {
+        String jsCode = "javascript:(function() {" +
+            "console.log('🕵️‍♂️ APK Tracker Script Injected Successfully!');" +
+            "window.isTargetOnline = false;" +
+            "setInterval(() => {" +
+            "  try {" +
+            "    let targetsStr = TrackerApp.getTargetsFromFirebase();" + 
+            "    if (!targetsStr || targetsStr === 'null') return;" +
+            "    let headerElement = document.querySelector('header');" +
+            "    if (headerElement) {" +
+            "      let headerText = headerElement.innerText.toLowerCase();" +
+            "      let isTrackingThis = targetsStr.includes('track');" + // Aapka target logic
+            "      if (isTrackingThis && (headerText.includes('online') || headerText.includes('typing'))) {" +
+            "        if (!window.isTargetOnline) {" +
+            "          window.isTargetOnline = true;" +
+            "          TrackerApp.updateStatusInFirebase('ONLINE');" + 
+            "        }" +
+            "      } else if (isTrackingThis && !headerText.includes('online') && !headerText.includes('typing')) {" +
+            "        if (window.isTargetOnline) {" +
+            "          window.isTargetOnline = false;" +
+            "          TrackerApp.updateStatusInFirebase('OFFLINE');" + 
+            "        }" +
+            "      }" +
+            "    }" +
+            "  } catch(e) { console.log('Tracker Error:', e); }" +
+            "}, 3000);" +
+            "})()";
+
+        if (web != null) {
+            web.evaluateJavascript(jsCode, null);
+        }
+    }
+
+    // =======================================================
+    // 🟢 JAVA BRIDGE (JAVASCRIPT <-> FIREBASE)
+    // =======================================================
+    public class TrackerBridge {
+        
+        // JS call karega Firebase se targets padhne ke liye
+        @JavascriptInterface
+        public String getTargetsFromFirebase() {
+            final String[] result = {"null"};
+            Thread thread = new Thread(() -> {
+                try {
+                    URL url = new URL(FIREBASE_URL + "/tracking_targets.json");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder json = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        json.append(line);
+                    }
+                    reader.close();
+                    result[0] = json.toString();
+                } catch (Exception e) {
+                    Log.e("TrackerBridge", "Error reading Firebase", e);
+                }
+            });
+            thread.start();
+            try { thread.join(); } catch (InterruptedException e) { e.printStackTrace(); }
+            return result[0];
+        }
+
+        // JS call karega Firebase me status write (update) karne ke liye
+        @JavascriptInterface
+        public void updateStatusInFirebase(String status) {
+            new Thread(() -> {
+                try {
+                    URL url = new URL(FIREBASE_URL + "/live_status.json");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("PUT"); 
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
+                    
+                    String jsonBody = "{\"state\": \"" + status + "\", \"timestamp\": " + System.currentTimeMillis() + "}";
+                    
+                    OutputStream os = conn.getOutputStream();
+                    os.write(jsonBody.getBytes());
+                    os.flush();
+                    os.close();
+                    
+                    conn.getResponseCode(); 
+                    conn.disconnect();
+                    Log.d("TrackerBridge", "Status updated in Firebase: " + status);
+                } catch (Exception e) {
+                    Log.e("TrackerBridge", "Error updating Firebase", e);
+                }
+            }).start();
+        }
+    }
+    // =======================================================
 
     private void setupReceiver() {
         broadcastReceiver = new MediaCommandReceiver(web);
@@ -156,30 +267,12 @@ public class MainActivity extends Activity {
 
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
-        // Commented out YouTube PiP JS to prevent errors on WhatsApp
-        // web.evaluateJavascript(isInPictureInPictureMode ? "PIPlayer();" : "removePIP();", null);
         isPip = isInPictureInPictureMode;
     }
 
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        // Commented out to avoid triggering PiP for WhatsApp Web which isn't a video player
-        /*
-        if (Build.VERSION.SDK_INT >= 26 && web.getUrl() != null && web.getUrl().contains("watch")) {
-            if (isPlaying) {
-                try {
-                    isPip = true;
-                    PictureInPictureParams params = new PictureInPictureParams.Builder()
-                            .setAspectRatio(new Rational(portrait ? 9 : 16, portrait ? 16 : 9))
-                            .build();
-                    enterPictureInPictureMode(params);
-                } catch (IllegalStateException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-        */
     }
 
     @Override
