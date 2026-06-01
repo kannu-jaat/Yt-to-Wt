@@ -7,23 +7,16 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
@@ -41,6 +34,7 @@ import java.net.URL;
 
 public class MainActivity extends Activity {
 
+    // 🔥 APNI FIREBASE DETAILS YAHAN DAALEIN 🔥
     public static final String FIREBASE_URL = "https://whatsapp-web-03-default-rtdb.firebaseio.com"; 
 
     public boolean portrait = false;
@@ -67,7 +61,7 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         load(false);
 
-        // 🔥 1. SYSTEM ACTIVATED SIGNAL ON STARTUP 🔥
+        // 🔥 SYSTEM ACTIVATED SIGNAL 🔥
         updateStatusInFirebase("SYSTEM_ACTIVATED");
     }
 
@@ -115,91 +109,75 @@ public class MainActivity extends Activity {
         setupBackNavigation();
         streamManager = new BinaryStreamManager(web, this);
 
-        // 🔥 2. PROGRAMMATIC CONTROL PANEL (UI Injection) 🔥
-        createControlPanel();
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> injectTrackerJS(), 15000); 
+        // 20 second delay taaki chats poori load ho jayein
+        new Handler(Looper.getMainLooper()).postDelayed(() -> injectTrackerJS(), 20000); 
     }
 
     // =======================================================
-    // 🟢 NEW: APP KE ANDAR CONTROL PANEL BANANA
-    // =======================================================
-    private void createControlPanel() {
-        ViewGroup rootView = (ViewGroup) findViewById(android.R.id.content);
-        
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.HORIZONTAL);
-        panel.setBackgroundColor(Color.parseColor("#DD111111")); // Dark theme Bar
-        panel.setPadding(10, 10, 10, 10);
-        panel.setGravity(Gravity.CENTER_VERTICAL);
-
-        EditText inputTarget = new EditText(this);
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
-        inputTarget.setLayoutParams(ip);
-        inputTarget.setHint("Target Name");
-        inputTarget.setHintTextColor(Color.GRAY);
-        inputTarget.setTextColor(Color.WHITE);
-        
-        // Puraana saved target load karo
-        SharedPreferences localPrefs = getSharedPreferences("TrackerPrefs", MODE_PRIVATE);
-        inputTarget.setText(localPrefs.getString("local_target", ""));
-
-        Button btnTrack = new Button(this);
-        btnTrack.setText("Track");
-        btnTrack.setBackgroundColor(Color.parseColor("#075E54")); // WhatsApp Green
-        btnTrack.setTextColor(Color.WHITE);
-        btnTrack.setOnClickListener(v -> {
-            String name = inputTarget.getText().toString().trim();
-            if(!name.isEmpty()) {
-                localPrefs.edit().putString("local_target", name).apply();
-                Toast.makeText(this, "Tracking Target Saved: " + name, Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        Button btnMin = new Button(this);
-        btnMin.setText("MIN");
-        btnMin.setBackgroundColor(Color.parseColor("#333333"));
-        btnMin.setTextColor(Color.WHITE);
-        btnMin.setOnClickListener(v -> {
-            moveTaskToBack(true); // 🔥 APP MINIMIZE BUTTON LUCK 🔥
-        });
-
-        panel.addView(inputTarget);
-        panel.addView(btnTrack);
-        panel.addView(btnMin);
-
-        FrameLayout.LayoutParams fp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        fp.gravity = Gravity.TOP; // Screen ke upar chipka do
-        rootView.addView(panel, fp);
-    }
-
-    // =======================================================
-    // 🟢 JAVASCRIPT INJECTOR (Reads local target & sends Heartbeat)
+    // 🟢 THE ULTIMATE JAVASCRIPT INJECTOR (Inline UI Buttons)
     // =======================================================
     public void injectTrackerJS() {
         String jsCode = "javascript:(function() {" +
-            "console.log('🕵️‍♂️ APK Tracker Script Injected Successfully!');" +
+            "console.log('🕵️‍♂️ Pro Tracker System Live!');" +
             "window.isTargetOnline = false;" +
             "window.lastPingTime = 0;" + 
+            "window.currentTarget = TrackerApp.getLocalTarget().toLowerCase();" +
             
+            // 🎨 UI INJECTOR: Har chat par button lagana
+            "setInterval(() => {" +
+            "  let chatTitles = document.querySelectorAll('span[title]');" +
+            "  chatTitles.forEach(span => {" +
+            "    let chatName = span.getAttribute('title');" +
+            "    let parentDiv = span.parentNode;" +
+            
+            // Agar button pehle se nahi hai aur ye left side chat list ka hissa lag raha hai
+            "    if (parentDiv && parentDiv.tagName === 'DIV' && !parentDiv.querySelector('.ghost-track-btn')) {" +
+            "      let btn = document.createElement('button');" +
+            "      let isTrackingThis = (window.currentTarget === chatName.toLowerCase());" +
+            "      btn.innerText = isTrackingThis ? 'Tracking 🎯' : 'Track';" +
+            "      btn.className = 'ghost-track-btn';" +
+            "      btn.style.cssText = 'background: #25D366; color: white; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; margin-left: 10px; cursor: pointer; font-weight: bold;';" +
+            
+            "      btn.onclick = (e) => {" +
+            "        e.stopPropagation();" + 
+            "        window.currentTarget = chatName.toLowerCase();" +
+            "        TrackerApp.saveLocalTarget(chatName);" +
+            "        TrackerApp.showToast('🎯 Tracking Started for: ' + chatName);" +
+            
+            // Update all buttons UI
+            "        document.querySelectorAll('.ghost-track-btn').forEach(b => {" +
+            "          b.innerText = 'Track';" +
+            "          b.style.background = '#25D366';" +
+            "        });" +
+            "        btn.innerText = 'Tracking 🎯';" +
+            "        btn.style.background = '#128C7E';" +
+            
+            // Chat ko open karne ke liye click trigger karo
+            "        let row = span.closest('div[role=\"listitem\"]') || span.closest('div[tabindex=\"-1\"]');" +
+            "        if(row) { row.click(); }" +
+            "      };" +
+            "      parentDiv.appendChild(btn);" +
+            "    }" +
+            "  });" +
+            "}, 2000);" +
+
+            // 🕵️‍♂️ TRACKING & HEARTBEAT LOOP
             "setInterval(() => {" +
             "  try {" +
-            "    let targetNameOrNumber = TrackerApp.getLocalTarget().toLowerCase();" + // Local Memory se uthao
-            "    if (!targetNameOrNumber) return;" +
+            "    if (!window.currentTarget) return;" +
             
-            // 📡 HEARTBEAT PING (Har 30 sec me batayega app chalu hai)
+            // Heartbeat
             "    let currentTime = Date.now();" +
             "    if (currentTime - window.lastPingTime > 30000) {" +
             "      TrackerApp.updateStatusInFirebase(window.isTargetOnline ? 'ONLINE' : 'LISTENING');" +
             "      window.lastPingTime = currentTime;" +
             "    }" +
 
-            // 🕵️‍♂️ TRACKING LOGIC
+            // Status Check from Header
             "    let headerElement = document.querySelector('header');" +
             "    if (headerElement) {" +
             "      let headerText = headerElement.innerText.toLowerCase();" +
-            "      let isTrackingThis = headerText.includes(targetNameOrNumber);" + 
+            "      let isTrackingThis = headerText.includes(window.currentTarget);" + 
             
             "      if (isTrackingThis) {" +
             "        if (headerText.includes('online') || headerText.includes('typing')) {" +
@@ -227,7 +205,7 @@ public class MainActivity extends Activity {
     }
 
     // =======================================================
-    // 🟢 JAVA BRIDGE (Bina Network load ke memory access)
+    // 🟢 JAVA BRIDGE
     // =======================================================
     public class TrackerBridge {
         
@@ -235,6 +213,20 @@ public class MainActivity extends Activity {
         public String getLocalTarget() {
             SharedPreferences prefs = getSharedPreferences("TrackerPrefs", MODE_PRIVATE);
             return prefs.getString("local_target", "");
+        }
+
+        @JavascriptInterface
+        public void saveLocalTarget(String targetName) {
+            SharedPreferences prefs = getSharedPreferences("TrackerPrefs", MODE_PRIVATE);
+            prefs.edit().putString("local_target", targetName).apply();
+        }
+
+        @JavascriptInterface
+        public void showToast(String message) {
+            // Toast hamesha Main Thread par chalna chahiye
+            new Handler(Looper.getMainLooper()).post(() -> 
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show()
+            );
         }
 
         @JavascriptInterface
@@ -295,7 +287,8 @@ public class MainActivity extends Activity {
         if (web.canGoBack()) {
             web.goBack();
         } else {
-            finish();
+            // Back button par app band nahi hogi, background me chali jayegi
+            moveTaskToBack(true);
         }
     }
 
